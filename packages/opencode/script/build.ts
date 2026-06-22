@@ -169,7 +169,7 @@ for (const item of targets) {
     conditions: ["bun", "node"],
     tsconfig: "./tsconfig.json",
     plugins: [plugin],
-    external: ["node-gyp"],
+    external: ["node-gyp", "@opentui/core-*", "@ff-labs/fff-bin-*"],
     format: "esm",
     minify: true,
     sourcemap: sourcemapsFlag ? "linked" : "none",

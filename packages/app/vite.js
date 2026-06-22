@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs"
+import { readFileSync, readdirSync, writeFileSync } from "node:fs"
 import solidPlugin from "vite-plugin-solid"
 import tailwindcss from "@tailwindcss/vite"
 import { fileURLToPath } from "url"
@@ -27,10 +27,31 @@ export default [
         },
         define: {
           "import.meta.env.VITE_OPENCODE_CHANNEL": JSON.stringify(channel),
+          "import.meta.env.BASE_URL": "__OPENCODE_BASE__",
         },
         worker: {
           format: "es",
         },
+      }
+    },
+  },
+  {
+    name: "opencode:web-base-preload",
+    enforce: "post",
+    closeBundle() {
+      const assetsDir = fileURLToPath(new URL("./dist/assets", import.meta.url))
+      for (const file of readdirSync(assetsDir)) {
+        if (!file.endsWith(".js")) continue
+        const filepath = `${assetsDir}/${file}`
+        const code = readFileSync(filepath, "utf8")
+        const replaced = code.replace(
+          /=function\(([a-zA-Z])\)\{return"\/"\+\1\}/g,
+          '=function($1){return(__OPENCODE_BASE__||"/")+$1}',
+        )
+        if (replaced !== code) {
+          writeFileSync(filepath, replaced)
+          console.log(`  patched base resolver in ${file}`)
+        }
       }
     },
   },

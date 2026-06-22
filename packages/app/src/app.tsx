@@ -9,7 +9,7 @@ import { Font } from "@opencode-ai/ui/font"
 import { Splash } from "@opencode-ai/ui/logo"
 import { ThemeProvider } from "@opencode-ai/ui/theme/context"
 import { MetaProvider } from "@solidjs/meta"
-import { type BaseRouterProps, Navigate, Route, Router, useParams, useSearchParams } from "@solidjs/router"
+import { type BaseRouterProps, Navigate, Route, Router, createBeforeLeave, createRouter, useParams, useSearchParams } from "@solidjs/router"
 import { QueryClient, QueryClientProvider } from "@tanstack/solid-query"
 import { Effect } from "effect"
 import {
@@ -410,6 +410,66 @@ function ServerKey(props: ParentProps) {
   )
 }
 
+function BaseRouter(props: BaseRouterProps) {
+  const base = import.meta.env.BASE_URL.replace(/\/$/, "")
+  if (!base || base === "/") return Router(props)
+  return createRouter({
+    get: () => {
+      const pathname = window.location.pathname
+      const stripped = pathname.startsWith(base + "/") || pathname === base
+        ? pathname.slice(base.length) || "/"
+        : pathname
+      return { value: stripped + window.location.search + window.location.hash, state: window.history.state }
+    },
+    set: ({ value, replace, state }) => {
+      const url = base + value
+      if (replace) window.history.replaceState(state, "", url)
+      else window.history.pushState(state, "", url)
+    },
+    init: (notify) => {
+      const handler = () => notify()
+      window.addEventListener("popstate", handler)
+      return () => window.removeEventListener("popstate", handler)
+    },
+    create: (router) => {
+      const navigate = router.navigatorFactory(router.base)
+      const basePath = router.base.path()
+      const onClick = (e: MouseEvent) => {
+        if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+        const a = (e.target as HTMLElement)?.closest?.("a")
+        if (!a || a.hasAttribute("download") || a.target === "_blank") return
+        const href = a.getAttribute("href")
+        if (!href || href.startsWith("//") || href.startsWith("http")) return
+        const url = new URL(href, window.location.origin)
+        if (url.origin !== window.location.origin) return
+        e.preventDefault()
+        const path = url.pathname.startsWith(basePath) ? url.pathname.slice(basePath.length) || "/" : url.pathname
+        navigate(path + url.search + url.hash, { resolve: false, replace: a.hasAttribute("replace") })
+      }
+      const onSubmit = (e: SubmitEvent) => {
+        if (e.defaultPrevented) return
+        const form = e.target as HTMLFormElement
+        const action = (e.submitter as HTMLElement)?.getAttribute("formaction") || form.getAttribute("action")
+        if (!action || !action.startsWith("/")) return
+        e.preventDefault()
+        const path = action.startsWith(basePath) ? action.slice(basePath.length) || "/" : action
+        navigate(path + "?" + new FormData(form).toString(), { resolve: false })
+      }
+      document.addEventListener("click", onClick)
+      document.addEventListener("submit", onSubmit)
+      return () => {
+        document.removeEventListener("click", onClick)
+        document.removeEventListener("submit", onSubmit)
+      }
+    },
+    utils: {
+      go: (delta: number) => window.history.go(delta),
+      beforeLeave: createBeforeLeave(),
+      renderPath: (path: string) => base + path,
+    },
+  })(props)
+}
+
 export function AppInterface(props: {
   children?: JSX.Element
   defaultServer: ServerConnection.Key
@@ -441,7 +501,7 @@ export function AppInterface(props: {
       <GlobalProvider>
         <ConnectionGate disableHealthCheck={props.disableHealthCheck}>
           <Dynamic
-            component={props.router ?? Router}
+            component={props.router ?? BaseRouter}
             root={(routerProps) => (
               <TabsProvider>
                 <ServerShell>{routerProps.children}</ServerShell>
